@@ -1,0 +1,16 @@
+node_modules
+.next
+out
+.env
+.env.local
+prisma/dev.db
+prisma/dev.db-journal
+.data
+next-env.d.ts
+*.tsbuildinfo
+prisma/test.db
+
+# Cloudflare local secrets and build output
+.dev.vars
+.wrangler
+.open-next

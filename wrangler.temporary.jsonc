@@ -1,0 +1,44 @@
+{
+  // Deploy config for a Cloudflare TEMPORARY PREVIEW account.
+  //
+  //   npx wrangler deploy -c wrangler.temporary.jsonc --temporary
+  //
+  // Temporary accounts need no login, stay live for 60 minutes, and can be
+  // claimed into a permanent account from the URL Wrangler prints. They do not
+  // offer R2, so uploads go to KV here instead. Everything else is identical to
+  // wrangler.jsonc, which remains the config for a permanent deployment.
+  //
+  // No resource IDs below: Wrangler provisions the D1 database and the KV
+  // namespace inside the temporary account on first deploy.
+
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "mohamm-verification-demo",
+  "main": ".open-next/worker.js",
+  "compatibility_date": "2026-09-01",
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+
+  "assets": {
+    "directory": ".open-next/assets",
+    "binding": "ASSETS"
+  },
+
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "dispatch",
+      "migrations_dir": "migrations"
+    }
+  ],
+
+  "kv_namespaces": [
+    {
+      "binding": "UPLOADS_KV"
+    }
+  ],
+
+  "vars": {
+    "DATABASE_URL": "file:./unused.db",
+    "WHATSAPP_TEMPLATE_NAME": "task_offer",
+    "WHATSAPP_TEMPLATE_LANG": "en"
+  }
+}

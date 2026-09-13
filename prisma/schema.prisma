@@ -1,0 +1,254 @@
+// Verification Dispatch MVP — data model
+//
+// SQLite is used so the project runs with no external services. SQLite has no
+// native enum type, so the columns below that are conceptually enums are
+// stored as text and constrained in TypeScript (see src/lib/types.ts).
+//
+// To move to PostgreSQL: change the provider to "postgresql", point
+// DATABASE_URL at the instance, and — if you want real DB-level enums —
+// replace those String fields with the enum blocks noted beside each one.
+
+generator client {
+  provider = "prisma-client-js"
+  // Lets the same client talk to Cloudflare D1 through @prisma/adapter-d1 in
+  // production while local dev and tests keep using the SQLite file.
+  //
+  // Prisma 6.19 reports this flag as deprecated, but OpenNext's Cloudflare
+  // guide still specifies it, and OpenNext patches this generated client for
+  // Workers. Keep it, and do NOT add an `output` path: a custom output stops
+  // OpenNext from finding the client to patch.
+  previewFeatures = ["driverAdapters"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------- identity
+
+model User {
+  id           String   @id @default(uuid())
+  role         String // admin | client | researcher
+  email        String   @unique
+  passwordHash String
+  fullName     String
+  phone        String
+  status       String   @default("pending") // pending | approved | rejected
+  createdAt    DateTime @default(now())
+  approvedAt   DateTime?
+  approvedById String?
+
+  approvedBy   User?  @relation("Approver", fields: [approvedById], references: [id])
+  approved     User[] @relation("Approver")
+
+  clientProfile     ClientProfile?
+  researcherProfile ResearcherProfile?
+
+  tasksFiled     Task[] @relation("TaskClient")
+  tasksAssigned  Task[] @relation("TaskResearcher")
+  tasksClosed    Task[] @relation("TaskCloser")
+
+  offers          TaskOffer[]
+  attachments     TaskAttachment[]
+  photos          SitePhoto[]
+  docsUploaded    DocumentSubmission[] @relation("DocUploader")
+  docsReviewed    DocumentSubmission[] @relation("DocReviewer")
+  messages        Message[]
+  blockedAttempts BlockedAttempt[]
+  notifications   Notification[]
+
+  @@index([role, status])
+}
+
+model ClientProfile {
+  userId        String @id
+  companyName   String
+  contactPerson String
+  country       String
+  city          String
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model ResearcherProfile {
+  userId         String    @id
+  whatsappNumber String
+  country        String
+  city           String
+  // Comma-separated specialisms, used to filter the dispatch map the way
+  // Inspectorin filters by expertise. See EXPERTISE in src/lib/types.ts.
+  expertise      String    @default("")
+  coverageNote   String    @default("")
+  isAvailable    Boolean   @default(false)
+  lastLat        Float?
+  lastLng        Float?
+  lastSeenAt     DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// -------------------------------------------------------------------- work
+
+model Task {
+  id          String @id @default(uuid())
+  reference   String @unique
+  clientId    String
+  title       String
+  description String @default("")
+  addressText String
+  lat         Float
+  lng         Float
+
+  // pending_assignment | offered | assigned | in_progress | under_review
+  // | completed | cancelled
+  status String @default("pending_assignment")
+
+  assignedResearcherId String?
+  createdAt            DateTime  @default(now())
+  startedAt            DateTime?
+  researcherDoneAt     DateTime?
+  clientDoneAt         DateTime?
+  closedAt             DateTime?
+  closedById           String?
+
+  client             User  @relation("TaskClient", fields: [clientId], references: [id])
+  assignedResearcher User? @relation("TaskResearcher", fields: [assignedResearcherId], references: [id])
+  closedBy           User? @relation("TaskCloser", fields: [closedById], references: [id])
+
+  offers      TaskOffer[]
+  attachments TaskAttachment[]
+  photos      SitePhoto[]
+  documents   DocumentSubmission[]
+  messages    Message[]
+  blocked     BlockedAttempt[]
+  notifications Notification[]
+
+  @@index([status])
+  @@index([clientId])
+  @@index([assignedResearcherId])
+}
+
+model TaskOffer {
+  id           String    @id @default(uuid())
+  taskId       String
+  researcherId String
+  sentAt       DateTime  @default(now())
+  waMessageId  String?
+  response     String    @default("pending") // pending | accepted | declined
+  respondedAt  DateTime?
+  dryRun       Boolean   @default(true)
+
+  task       Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  researcher User @relation(fields: [researcherId], references: [id])
+
+  @@index([taskId])
+  @@index([waMessageId])
+}
+
+model TaskAttachment {
+  id           String   @id @default(uuid())
+  taskId       String
+  uploadedById String
+  fileName     String
+  mimeType     String
+  sizeBytes    Int
+  storageKey   String
+  createdAt    DateTime @default(now())
+
+  task       Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  uploadedBy User @relation(fields: [uploadedById], references: [id])
+
+  @@index([taskId])
+}
+
+// ---------------------------------------------------------------- evidence
+
+model SitePhoto {
+  id           String @id @default(uuid())
+  taskId       String
+  capturedById String
+  photoType    String // exterior | interior
+  storageKey   String
+
+  lat        Float
+  lng        Float
+  accuracyM  Float
+  deviceTime DateTime // what the handset claimed — recorded, not trusted
+  serverTime DateTime @default(now()) // the trusted timestamp
+  // Browsers cannot report this. A native app can, and the column is here so
+  // the schema does not have to change when one is added.
+  isMockLocation Boolean?
+
+  task       Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  capturedBy User @relation(fields: [capturedById], references: [id])
+
+  @@index([taskId])
+}
+
+model DocumentSubmission {
+  id            String    @id @default(uuid())
+  taskId        String
+  slotLabel     String
+  version       Int
+  storageKey    String
+  fileName      String
+  uploadedById  String
+  status        String    @default("pending") // pending | accepted | rejected
+  reviewedById  String?
+  reviewedAt    DateTime?
+  rejectionNote String?
+  createdAt     DateTime  @default(now())
+
+  task       Task  @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  uploadedBy User  @relation("DocUploader", fields: [uploadedById], references: [id])
+  reviewedBy User? @relation("DocReviewer", fields: [reviewedById], references: [id])
+
+  @@unique([taskId, slotLabel, version])
+  @@index([taskId])
+}
+
+// -------------------------------------------------------------- conversation
+
+model Message {
+  id        String   @id @default(uuid())
+  taskId    String
+  senderId  String
+  body      String
+  isSystem  Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  task   Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  sender User @relation(fields: [senderId], references: [id])
+
+  @@index([taskId, createdAt])
+}
+
+model BlockedAttempt {
+  id           String   @id @default(uuid())
+  taskId       String
+  senderId     String
+  originalBody String
+  matchedRule  String // phone | email
+  createdAt    DateTime @default(now())
+
+  task   Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  sender User @relation(fields: [senderId], references: [id])
+
+  @@index([taskId])
+}
+
+model Notification {
+  id        String    @id @default(uuid())
+  userId    String
+  taskId    String?
+  type      String // account_approved | researcher_assigned | document_rejected | task_closed
+  body      String
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  user User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  task Task? @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([userId, readAt])
+}

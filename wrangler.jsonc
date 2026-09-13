@@ -1,0 +1,50 @@
+{
+  // Cloudflare Workers deployment for the Verification Dispatch MVP.
+  //
+  // The app has exactly two kinds of state, and both need a Cloudflare service
+  // because Workers have no persistent disk:
+  //   - the database   -> D1, bound as DB
+  //   - uploaded files -> R2, bound as UPLOADS
+  // Site photos are the evidence the whole product exists to collect, so the
+  // R2 binding is not optional.
+
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "mohamm-verification-demo",
+  "main": ".open-next/worker.js",
+  "compatibility_date": "2026-09-01",
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+
+  "assets": {
+    "directory": ".open-next/assets",
+    "binding": "ASSETS"
+  },
+
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "dispatch",
+      // Replaced with the real id printed by `wrangler d1 create dispatch`.
+      // Local preview ignores it.
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "migrations"
+    }
+  ],
+
+  "r2_buckets": [
+    {
+      "binding": "UPLOADS",
+      "bucket_name": "dispatch-uploads"
+    }
+  ],
+
+  "vars": {
+    // Prisma reads this at construction even when a D1 adapter is supplied.
+    // It is never actually connected to on Workers.
+    "DATABASE_URL": "file:./unused.db",
+    "WHATSAPP_TEMPLATE_NAME": "task_offer",
+    "WHATSAPP_TEMPLATE_LANG": "en"
+  }
+
+  // SESSION_SECRET and the WhatsApp credentials are NOT here on purpose.
+  // Set them with `wrangler secret put`, so they never land in the repository.
+}
