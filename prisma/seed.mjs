@@ -15,6 +15,19 @@ const PLACES = {
 };
 
 async function main() {
+  // Runs on every Railway deploy (see railway.json), so it must never wipe a
+  // database that is in use. It only seeds when there are no accounts yet.
+  // `npm run db:reset` empties the tables first, so it still seeds normally.
+  // To wipe and reseed a database that has data: node prisma/seed.mjs --force
+  const existing = await db.user.count();
+  if (existing > 0 && !process.argv.includes("--force")) {
+    console.log(
+      `Database already has ${existing} account(s), so the seed is skipped. ` +
+        "Use --force to wipe and reseed.",
+    );
+    return;
+  }
+
   console.log("Clearing existing rows…");
   await db.notification.deleteMany();
   await db.blockedAttempt.deleteMany();

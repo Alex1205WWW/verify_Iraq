@@ -8,6 +8,7 @@
     "start": "next start",
     "db:push": "prisma db push",
     "db:seed": "node prisma/seed.mjs",
+    "db:deploy": "npx prisma@6.19.3 db push --skip-generate && node prisma/seed.mjs",
     "db:reset": "prisma db push --force-reset && npm run db:seed",
     "setup": "prisma generate && prisma db push && npm run db:seed",
     "test:e2e": "next build && node test/serve-and-test.mjs",
