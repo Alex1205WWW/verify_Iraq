@@ -1,6 +1,7 @@
 import { db } from "@/lib/db";
 import { requireRole } from "@/lib/auth";
 import Shell from "@/components/Shell";
+import DemoReset from "@/components/DemoReset";
 import { getLang, getTheme, getT } from "@/lib/prefs";
 
 export default async function AdminLayout({
@@ -23,6 +24,7 @@ export default async function AdminLayout({
       userName={user.fullName}
       lang={lang}
       theme={theme}
+      railFooter={<DemoReset />}
       groups={[
         {
           label: t.nav.dispatch,

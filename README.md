@@ -11,20 +11,25 @@ decides what the **server sends**, not just what the interface draws.
 Built for Mohamm's brief. Nothing here implements a feature that was not asked
 for.
 
+> **This build is a demo on virtual data.** There is no database. The whole
+> operational flow runs in the interface on data held in the server's memory,
+> so it can be shown to a client from anywhere with nothing to set up. The
+> database design is archived, with the steps to restore it, in
+> [`archive/database-design`](archive/database-design/README.md).
+
 ---
 
 ## Running it
 
-Node 18.18 or newer.
+Node 18.18 or newer. No database, no `.env` and no API keys are needed.
 
 ```bash
-cp .env.example .env      # then set SESSION_SECRET to any long random string
 npm install
-npm run setup             # prisma generate + db push + seed
 npm run dev
 ```
 
-Open <http://localhost:3000>.
+Open <http://localhost:3000>. The sign-in screen has one-click buttons for the
+three roles.
 
 | Role       | Email                    | Password     |
 | ---------- | ------------------------ | ------------ |
@@ -34,19 +39,47 @@ Open <http://localhost:3000>.
 
 Also seeded: `sara@`, `yusuf@`, `dilan@`, `noor@field.test`.
 
-`npm run db:reset` wipes and reseeds.
+### How the virtual data behaves
+
+- It is created the first time the server is used, and everything done in the
+  interface changes it: offers, photos, documents, chat, approvals.
+- It lasts until the server restarts. The operator can put it back to the
+  starting point at any time with **Reset demo data** at the foot of the menu.
+  Nobody is signed out by a reset.
+- Uploaded photos and documents are held in memory with it, and go with it.
+- Everyone who opens the same deployment sees the same data.
+
+`src/lib/db.ts` answers the same queries the Prisma client did, from a small
+in-memory store (`src/lib/demo/`) that follows the archived schema: same tables,
+defaults, unique rules and relations. No page or server action changed when the
+database was removed.
+
+### Deploying the demo
+
+Any Node host works, because there is nothing to provision. On Railway:
+
+1. Point the service at this repository. Railpack detects Next.js and runs
+   `npm run build`, then `npm run start` (also set in `railway.json`).
+2. No variables are required. Optionally set `SESSION_SECRET` to any long
+   random string so sign-ins survive a restart.
+3. Generate a domain under **Settings → Networking**.
+
+A PostgreSQL service is not used. The `DATABASE_URL` variable and any
+pre-deploy command left from the database version can be deleted.
+
+Camera capture needs HTTPS, which Railway domains provide.
 
 ### Nothing external is required
 
 No API keys, no billing account, no Meta onboarding. Maps are OpenStreetMap
-tiles through Leaflet, address search is Nominatim, the database is SQLite in a
-file, and WhatsApp runs in dry run until credentials are supplied.
+tiles through Leaflet, address search is Nominatim, the data is virtual, and
+WhatsApp runs in dry run until credentials are supplied.
 
 ---
 
 ## Walking through it
 
-The seed leaves the system mid-flow so every screen has something on it.
+The virtual data starts mid-flow so every screen has something on it.
 
 1. **Sign in as the operator.** The dispatch map shows open tasks and the
    researchers who have reported a position. `VR-1001` needs a researcher.
@@ -66,8 +99,11 @@ The seed leaves the system mid-flow so every screen has something on it.
 9. **Try sending a phone number in the chat.** It is refused with a reason, and
    it appears in the operator's blocked-attempts log on the task.
 
-`VR-1003` is already in progress with photos, chat and a declined offer in the
-history. Two applications are waiting under **Approvals**.
+`VR-1003` is already in progress with chat, a blocked contact attempt and a
+declined offer in the history. Two applications are waiting under **Approvals**.
+
+To show it again from the top, sign in as the operator and press
+**Reset demo data**.
 
 ---
 
@@ -97,7 +133,7 @@ fake position to any app. So:
 
 - the timestamp on the record is the **server's** (`serverTime`); the device's
   claim is stored beside it (`deviceTime`) only so a mismatch is visible;
-- coordinates are written into **database columns**, not into the image's EXIF
+- coordinates are written into **their own fields on the photo record**, not into the image's EXIF
   and not only burned onto the pixels — EXIF is rewritable and drawn text is
   editable;
 - the visible stamp is still drawn on the image, because it is useful to whoever
@@ -165,16 +201,19 @@ message, and from **1 October 2026** Meta charges for service messages after
 ## Layout
 
 ```
-prisma/schema.prisma      11 tables
-prisma/seed.mjs           demo data, mid-flow
+src/lib/demo/
+  schema.ts               the 11 tables, transcribed from the archived Prisma schema
+  engine.ts               in-memory store answering Prisma-shaped queries
+  seed.ts                 the virtual data, mid-flow
 
 src/lib/
+  db.ts                   the `db` every page and action uses, backed by the store
   types.ts                the unions that stand in for enums
   auth.ts                 role guards — every page and action goes through these
   session.ts              signed cookie
   filter.ts               contact-detail screening
   whatsapp.ts             Cloud API adapter + dry run
-  files.ts                disk storage, swap for S3 without touching callers
+  files.ts                upload storage (in memory for the demo)
   format.ts               distances, timestamps
 
 src/actions/              server actions: auth, admin, tasks, chat, evidence
@@ -182,10 +221,12 @@ src/components/           Shell, MapCanvas, CameraCapture, ChatPanel, Documents�
 src/app/admin/            5 screens — map, tasks, task detail, approvals, people
 src/app/client/           4 screens — coverage, new task, tasks, task detail
 src/app/researcher/       2 screens — my tasks, task detail with capture
-src/app/api/              file serving, location ping, WhatsApp webhook
+src/app/api/              file serving, location ping, WhatsApp webhook,
+                          and a read-only data route that exists only under test
+archive/database-design/  the database design and its deployments, set aside
 ```
 
-Uploads land in `.data/uploads` and are **never served statically** —
+Uploads are held in memory with the demo data and are **never served statically** —
 `/api/files/[key]` checks the caller's relationship to the task before returning
 bytes.
 
@@ -236,236 +277,32 @@ nothing.
 
 ## Testing
 
-\
-> verification-dispatch-mvp@0.1.0 test:e2e
-> next build && node test/serve-and-test.mjs
+```bash
+npm run test:e2e
+```
 
-   ▲ Next.js 15.5.25
-   - Environments: .env
-   - Experiments (use with caution):
-     · serverActions
+Result on the demo build:
 
-   Creating an optimized production build ...
- ✓ Compiled successfully in 3.3s
-   Linting and checking validity of types ...
-   Collecting page data ...
-   Generating static pages (0/10) ...
-   Generating static pages (2/10) 
-   Generating static pages (4/10) 
-   Generating static pages (7/10) 
- ✓ Generating static pages (10/10)
-   Finalizing page optimization ...
-   Collecting build traces ...
-
-Route (app)                                 Size  First Load JS
-┌ ƒ /                                      132 B         103 kB
-├ ƒ /_not-found                            993 B         104 kB
-├ ƒ /admin                               2.22 kB         118 kB
-├ ƒ /admin/approvals                       878 B         113 kB
-├ ƒ /admin/people                          893 B         116 kB
-├ ƒ /admin/tasks                           897 B         116 kB
-├ ƒ /admin/tasks/[id]                    3.35 kB         119 kB
-├ ƒ /api/files/[key]                       132 B         103 kB
-├ ƒ /api/location                          132 B         103 kB
-├ ƒ /api/webhooks/whatsapp                 132 B         103 kB
-├ ƒ /client                              2.22 kB         118 kB
-├ ƒ /client/new                          3.16 kB         115 kB
-├ ƒ /client/tasks                          897 B         116 kB
-├ ƒ /client/tasks/[id]                     200 B         121 kB
-├ ƒ /login                               2.18 kB         118 kB
-├ ƒ /pending                             1.41 kB         117 kB
-├ ƒ /register                            2.47 kB         118 kB
-├ ƒ /researcher                          2.61 kB         118 kB
-└ ƒ /researcher/tasks/[id]               1.99 kB         122 kB
-+ First Load JS shared by all             103 kB
-  ├ chunks/255-37e0f0325134c4d7.js       46.4 kB
-  ├ chunks/4bd1b696-c023c6e3521b1417.js  54.2 kB
-  └ other shared chunks (total)          2.04 kB
-
-
-ƒ  (Dynamic)  server-rendered on demand
-
-Target http://127.0.0.1:3200
-16 server actions located in the client bundle
-
-
-1  Routes render for the role that owns them
---------------------------------------------
-  ok    GET /login
-  ok    GET /register
-  ok    GET /pending
-  ok    GET /admin
-  ok    GET /admin/tasks
-  ok    GET /admin/tasks?status=all
-  ok    GET /admin/tasks?status=completed
-  ok    GET /admin/tasks/8047d5df-e426-47d2-b821-f1b096b123cb
-  ok    GET /admin/tasks/70878d2e-18ef-4742-a554-e0b1d5659870
-  ok    GET /admin/approvals
-  ok    GET /admin/people
-  ok    GET /admin/people?role=client
-  ok    GET /client
-  ok    GET /client?skill=Site+verification
-  ok    GET /client/new
-  ok    GET /client/tasks
-  ok    GET /client/tasks/70878d2e-18ef-4742-a554-e0b1d5659870
-  ok    GET /researcher
-  ok    GET /researcher/tasks/70878d2e-18ef-4742-a554-e0b1d5659870
-
-2  Language and theme are decided on the server
------------------------------------------------
-  ok    /admin in en is dir=ltr with translated copy
-  ok    /admin in ar is dir=rtl with translated copy
-  ok    researcher home translates
-  ok    theme=light is stamped on <html>
-  ok    theme=dark is stamped on <html>
-  ok    theme=system leaves the OS to decide
-
-3  Authorisation
-----------------
-  ok    researcher → admin redirects to /researcher
-  ok    company → admin redirects to /client
-  ok    researcher → company redirects to /researcher
-  ok    company → researcher redirects to /client
-  ok    anonymous → admin redirects to /login
-  ok    anonymous → new task redirects to /login
-  ok    anonymous → researcher redirects to /login
-  ok    researcher cannot open a task assigned to someone else
-  ok    a pending applicant cannot reach the app
-
-4  Contact details never reach the wrong role
----------------------------------------------
-  ok    coverage map exposes no researcher identity
-  ok    company task page exposes no researcher identity
-  ok    researcher task page exposes no company identity
-  ok    operator does receive both sides' details
-
-5  API routes
--------------
-  ok    POST /api/location accepts a researcher ping
-  ok    POST /api/location rejects a company account
-  ok    POST /api/location rejects an anonymous caller
-  ok    POST /api/location rejects bad coordinates
-  ok    the ping is written to the profile
-  ok    GET /api/files (no stored file to test against)
-  ok    GET /api/files refuses a traversal key
-  ok    WhatsApp webhook completes Meta's handshake
-  ok    WhatsApp webhook rejects a wrong verify token
-  ok    WhatsApp webhook tolerates junk without crashing
-
-6  Assignment: offer, decline, re-offer, accept
------------------------------------------------
-  ok    VR-1001 starts unassigned
-  ok    offerTask moves the task to offered
-  ok    offerTask writes one offer row
-  ok    the offer carries a WhatsApp message id
-  ok    the offer is marked dry run with no credentials
-  ok    a company account cannot offer a task
-  FAIL  a decline returns the task to the queue
-  ok    the declined offer stays in the history
-  ok    nobody is assigned after a decline
-  FAIL  a second offer is a second row, not an overwrite
-  ok    an accept assigns the task
-  FAIL  the accepting researcher is recorded
-  ok    the company is notified on assignment
-
-7  Doing the work
------------------
-  ok    another researcher cannot start someone else's task
-  ok    startWork moves the task to in_progress
-  ok    startWork stamps startedAt
-  FAIL  startWork opens the chat with a system message
-  ok    a plain chat message is delivered
-  ok    chat blocks a typed phone number and logs the attempt
-  ok    chat blocks a spaced phone number and logs the attempt
-  ok    chat blocks a dotted phone number and logs the attempt
-  ok    chat blocks a dashed phone number and logs the attempt
-  ok    chat blocks an email address and logs the attempt
-  ok    chat does not block ordinary numbers
-  ok    a researcher not on the task cannot post to its chat
-  ok    saveSitePhoto stores the photo
-  ok    coordinates land in database columns, not the image
-  ok    accuracy is kept
-  ok    the server clock wins over the device clock
-  ok    photo type is recorded
-  FAIL  a photo with no location is refused — http 200
-  FAIL  uploadDocument stores version 1 as pending
-  ok    the company can reject a document
-  ok    the rejection note is stored
-  FAIL  the rejection is posted into the chat
-  ok    the researcher is notified of the rejection
-  ok    a rejection with no note is refused
-  FAIL  a re-upload becomes version 2
-  ok    version 1 is kept, not overwritten
-  ok    the company can accept a document
-  ok    a researcher cannot review their own document
-
-8  Completion and force close
------------------------------
-  ok    one signature moves the task to under_review
-  ok    the researcher signature is stamped
-  ok    one signature does not close the task
-  ok    both signatures close the task
-  ok    closedAt is stamped
-  ok    a company account cannot force-close
-  ok    the operator can force-close a stalled task
-  ok    force close records who closed it
-
-9  Task creation, approvals, availability
------------------------------------------
-  ok    createTask files a new task
-  ok    the new task belongs to the filing company
-  ok    the new task starts in the assignment queue
-  ok    the new task carries its coordinates
-  ok    a sequential reference is issued
-  ok    a task without coordinates is refused
-  ok    no task was ever filed at 0,0
-  ok    no photo was ever stored at 0,0
-  ok    the approvals page exposes both form actions
-  ok    approving an applicant opens the account
-  ok    the approval records who granted it
-  ok    the approved applicant is notified
-  ok    the approved account can now sign in
-  ok    suspending an account revokes access at once
-  ok    restoring the account gives access back
-  ok    setAvailability switches off
-  ok    setAvailability switches back on
-  ok    a company account has no availability to set
-
-10  Sign in and register
-------------------------
-  ok    a correct password is accepted and redirects to the right home
-  ok    a wrong password is rejected
-  ok    an unknown email is rejected
-  ok    registerAction creates the account
-  ok    a new account starts pending, not approved
-  ok    the password is stored hashed, never in the clear
-  ok    a duplicate email is refused
-  ok    a short password is refused
-
+```
 ========================================================
-  115 passed, 8 failed
-
-  Failures
-   · a decline returns the task to the queue
-   · a second offer is a second row, not an overwrite
-   · the accepting researcher is recorded
-   · startWork opens the chat with a system message
-   · a photo with no location is refused — http 200
-   · uploadDocument stores version 1 as pending
-   · the rejection is posted into the chat
-   · a re-upload becomes version 2
+  125 passed, 0 failed
 ========================================================
 
 No unexpected server-side errors.
+```
+
 125 checks over real HTTP against a production build. Mutations go through the
 **actual server actions**, located by the id Next embeds in the client bundle
-and encoded with React's own , so the harness speaks exactly the
+and encoded with React's own `encodeReply`, so the harness speaks exactly the
 wire format the browser speaks. A broken guard fails the suite the same way it
 would fail a user.
 
-The runner boots its own server against a throwaway copy of the database, so it
-can be run while the app is open in a browser. It refuses to start if something
-already owns the port, rather than silently testing a stranger's server.
+The runner boots its own server with a fresh copy of the virtual data, so it can
+be run while the demo is open in a browser. The suite checks results by reading
+that data through `/api/demo/query`, a read-only route that only exists when
+the runner starts the server with a random one-time token. It refuses to start
+if something already owns the port, rather than silently testing a stranger's
+server, and it stops the whole server process tree when it finishes.
 
 What it covers: every route for every role; language and theme; the full
 authorisation matrix including cross-tenant access; that contact details never
@@ -477,16 +314,16 @@ approvals, rejection, suspension; sign-in and registration.
 
 ### Two defects it caught
 
-**Actions were dead at runtime.**  re-exported a constant,
-and a  file may only export async functions. Page renders were
+**Actions were dead at runtime.** `src/actions/tasks.ts` re-exported a constant,
+and a `"use server"` file may only export async functions. Page renders were
 fine, so nothing looked wrong — but the first action invoked on those pages
-threw .
+threw `A "use server" file can only export async functions`.
 
-**Blank coordinates became 0,0.**  is , so a photo taken with no
+**Blank coordinates became 0,0.** `Number("")` is `0`, so a photo taken with no
 GPS fix was stored at null island in the Atlantic, and a task filed with no
 location went to the same place. On a platform whose whole premise is that a
 photo can be trusted to have been taken somewhere, that is the worst possible
-silent failure.  in  now refuses blanks and
+silent failure. `parseCoord` in `src/lib/format.ts` now refuses blanks and
 out-of-range values, and the suite asserts nothing is ever stored at 0,0.
 
 ---
@@ -504,15 +341,13 @@ gate, the operator dispatches from a desktop, and both are first-class.
 
 ---
 
-## Moving to PostgreSQL
+## Putting the database back
 
-1. `provider = "postgresql"` in `prisma/schema.prisma`, and point `DATABASE_URL`
-   at the instance.
-2. Optionally replace the text columns marked in the schema with real enums —
-   the unions in `src/lib/types.ts` already list every value.
-3. `npx prisma migrate dev`.
-
-Nothing in `src/` changes.
+The PostgreSQL design — Prisma schema, seed, generated SQL, the Cloudflare D1
+variant and the Railway pre-deploy migration — is in
+[`archive/database-design`](archive/database-design/README.md), with the steps
+to restore it. Because the demo store answers the same queries, restoring it
+means swapping `src/lib/db.ts` and `src/lib/files.ts` back, not rewriting pages.
 
 ---
 

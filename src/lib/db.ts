@@ -1,63 +1,39 @@
-import { cache } from "react";
-import { PrismaClient } from "@prisma/client";
-import { PrismaD1 } from "@prisma/adapter-d1";
-import { getCloudflareContext } from "@opennextjs/cloudflare";
+import "server-only";
+import { createClient, Store } from "./demo/engine";
+import { schema, type DemoClient } from "./demo/schema";
+import { seedDemoData } from "./demo/seed";
 
 /**
- * One import, two runtimes.
+ * Demo mode: there is no database.
  *
- * On Cloudflare Workers the database is D1. The D1 binding only exists inside
- * a request, and a PrismaClient must NOT outlive the request that made it:
- * reusing one across requests breaks later requests on Workers. So the client
- * is built per request and scoped with React's `cache`.
+ * `db` answers the same queries the Prisma client did, from virtual data held
+ * in this server process's memory. It is seeded on first use and lives until
+ * the server restarts, or until the operator presses "Reset demo data".
  *
- * Everywhere else - `next dev`, `next start`, the e2e suite - it is the SQLite
- * file named by DATABASE_URL through one long-lived client, exactly as before.
+ * The store sits on globalThis because Next compiles pages, route handlers and
+ * server actions into separate bundles, and in development it re-evaluates
+ * modules on every save. All of them must see the one copy of the data.
  *
- * `db` is a proxy so no caller has to change: `db.task.findMany()` resolves to
- * the right client at the moment it is used.
+ * The database design this replaces is kept in archive/database-design,
+ * with the steps to put it back.
  */
 
-type D1Binding = ConstructorParameters<typeof PrismaD1>[0];
+const globalForDemo = globalThis as unknown as { demoStore?: Store };
 
-function d1Binding(): D1Binding | undefined {
-  try {
-    const { env } = getCloudflareContext();
-    return (env as unknown as { DB?: D1Binding }).DB;
-  } catch {
-    // Not inside Cloudflare. Fall through to the local SQLite file.
-    return undefined;
+function store(): Store {
+  if (!globalForDemo.demoStore) {
+    const fresh = new Store(schema);
+    seedDemoData(fresh);
+    globalForDemo.demoStore = fresh;
   }
+  return globalForDemo.demoStore;
 }
 
-/** One D1-backed client per request, never shared between requests. */
-const requestClient = cache((binding: D1Binding) => {
-  return new PrismaClient({ adapter: new PrismaD1(binding) });
-});
+export const db = createClient(schema, store) as unknown as DemoClient;
 
-// Next.js hot-reloads modules in development, which would otherwise open a new
-// pool on every save until SQLite refuses connections.
-const globalForPrisma = globalThis as unknown as { prisma?: PrismaClient };
-
-function localClient(): PrismaClient {
-  if (!globalForPrisma.prisma) {
-    globalForPrisma.prisma = new PrismaClient({
-      log:
-        process.env.NODE_ENV === "development" ? ["warn", "error"] : ["error"],
-    });
-  }
-  return globalForPrisma.prisma;
+/** Puts the virtual data back to where the demo starts. */
+export function resetDemoData(): void {
+  const current = store();
+  current.clear();
+  seedDemoData(current);
 }
-
-function resolveClient(): PrismaClient {
-  const binding = d1Binding();
-  return binding ? requestClient(binding) : localClient();
-}
-
-export const db = new Proxy({} as PrismaClient, {
-  get(_target, prop) {
-    const client = resolveClient();
-    const value = Reflect.get(client, prop, client);
-    return typeof value === "function" ? value.bind(client) : value;
-  },
-});

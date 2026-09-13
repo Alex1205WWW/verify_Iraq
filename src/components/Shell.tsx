@@ -17,6 +17,7 @@ export default function Shell({
   groups,
   lang,
   theme,
+  railFooter,
   children,
 }: {
   roleLabel: string;
@@ -24,6 +25,8 @@ export default function Shell({
   groups: NavGroup[];
   lang: Lang;
   theme: "system" | "light" | "dark";
+  /** Rendered under the navigation, e.g. the operator's demo tools. */
+  railFooter?: React.ReactNode;
   children: React.ReactNode;
 }) {
   const [open, setOpen] = useState(false);
@@ -130,6 +133,7 @@ export default function Shell({
               ))}
             </nav>
           ))}
+          {railFooter}
         </aside>
 
         <main className="content">{children}</main>

@@ -5,6 +5,14 @@ import { useActionState } from "react";
 import { loginAction, type FormState } from "@/actions/auth";
 import { useT } from "@/components/Intl";
 
+// The demo's seeded accounts. The password is printed on this page anyway.
+const DEMO_PASSWORD = "dispatch123";
+const DEMO_LOGINS = [
+  { role: "admin", email: "operator@dispatch.test" },
+  { role: "client", email: "ops@gulfverify.test" },
+  { role: "researcher", email: "ahmed@field.test" },
+] as const;
+
 export default function LoginForm() {
   const t = useT();
   const [state, action, pending] = useActionState<FormState, FormData>(
@@ -78,14 +86,27 @@ export default function LoginForm() {
 
       <div className="notice" style={{ marginTop: 14 }}>
         <b>{t.auth.demoAccounts}</b>
-        <div className="mono" style={{ marginTop: 6, lineHeight: 1.7 }} dir="ltr">
-          operator@dispatch.test · {t.role.admin}
-          <br />
-          ops@gulfverify.test · {t.role.client}
-          <br />
-          ahmed@field.test · {t.role.researcher}
-          <br />
-          <span className="dim">{t.auth.demoPassword}</span>
+        <p className="small" style={{ margin: "4px 0 10px" }}>
+          {t.demo.banner}
+        </p>
+        <div className="stack tight">
+          {DEMO_LOGINS.map((d) => (
+            <form key={d.email} action={action}>
+              <input type="hidden" name="email" value={d.email} />
+              <input type="hidden" name="password" value={DEMO_PASSWORD} />
+              <button type="submit" className="btn sm block demo-login" disabled={pending}>
+                <span>
+                  {t.demo.signInAs} <b>{t.role[d.role]}</b>
+                </span>
+                <span className="mono small dim" dir="ltr">
+                  {d.email}
+                </span>
+              </button>
+            </form>
+          ))}
+        </div>
+        <div className="mono small dim" style={{ marginTop: 8 }} dir="ltr">
+          {t.auth.demoPassword}
         </div>
       </div>
     </>

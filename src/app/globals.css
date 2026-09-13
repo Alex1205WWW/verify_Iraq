@@ -402,6 +402,18 @@ p:last-child {
   background: var(--accent);
   color: var(--accent-ink);
 }
+.rail .demo-tools {
+  margin-top: 18px;
+  border-top: 1px solid var(--line);
+}
+.rail .demo-tools .small {
+  margin: 0 10px 10px;
+}
+
+.btn.demo-login {
+  justify-content: space-between;
+  flex-wrap: wrap;
+}
 
 .content {
   min-width: 0;

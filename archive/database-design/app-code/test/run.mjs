@@ -3,10 +3,10 @@
  *
  * Everything runs over real HTTP against a production build. Mutations go
  * through the actual server actions — located by the id Next embeds in the
- * client bundle — rather than by writing to the data behind the app's
+ * client bundle — rather than by writing to the database behind the app's
  * back, so a broken guard fails the test the same way it would fail a user.
  */
-import { demoDb } from "./demo-db.mjs";
+import { PrismaClient } from "@prisma/client";
 import { SignJWT } from "jose";
 import { actionMap } from "./actions.mjs";
 import { encodeReply } from "next/dist/compiled/react-server-dom-webpack/client.node.js";
@@ -14,7 +14,7 @@ import { encodeReply } from "next/dist/compiled/react-server-dom-webpack/client.
 const BASE = process.env.TEST_BASE ?? "http://127.0.0.1:3200";
 const SECRET = new TextEncoder().encode(process.env.SESSION_SECRET);
 
-const db = demoDb(BASE, process.env.DEMO_TEST_TOKEN);
+const db = new PrismaClient();
 const ACTIONS = actionMap();
 
 let pass = 0;

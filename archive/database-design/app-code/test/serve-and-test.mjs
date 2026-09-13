@@ -1,19 +1,34 @@
 /**
- * Boots a production server with a fresh copy of the virtual data, runs the
- * functional suite against it, then shuts down. The data lives in that
- * server's memory, so a demo open in a browser on another port is never
- * touched.
+ * Boots a production server against a throwaway copy of the database, runs the
+ * functional suite against it, then shuts down. The real dev database is never
+ * touched, so the suite can be run while the app is open in a browser.
  */
-import { spawn, spawnSync } from "node:child_process";
-import { randomBytes } from "node:crypto";
+import { spawn } from "node:child_process";
+import { copyFileSync, existsSync, rmSync } from "node:fs";
 import process from "node:process";
 
 const PORT = process.env.TEST_PORT ?? "3200";
 const BASE = `http://127.0.0.1:${PORT}`;
 
+if (!existsSync("prisma/dev.db")) {
+  console.error("No prisma/dev.db — run `npm run setup` first.");
+  process.exit(1);
+}
+// SQLite keeps committed pages in the -wal sidecar, so replacing only the
+// main file leaves the previous run's data alive. Clear all of them.
+for (const suffix of ["", "-wal", "-shm", "-journal"]) {
+  try {
+    rmSync("prisma/test.db" + suffix, { force: true });
+  } catch {
+    console.error("prisma/test.db is locked — another server still has it open.");
+    process.exit(1);
+  }
+}
+copyFileSync("prisma/dev.db", "prisma/test.db");
+
 // Refuse to run if something already owns the port. Otherwise the suite
-// silently tests a stranger's server against data it does not control, and
-// the results drift for no visible reason.
+// silently tests a stranger's server against a database it does not control,
+// and the results drift for no visible reason.
 try {
   const probe = await fetch(BASE + "/login", { signal: AbortSignal.timeout(1500) });
   if (probe) {
@@ -24,15 +39,7 @@ try {
   /* nothing listening, which is what we want */
 }
 
-const env = {
-  ...process.env,
-  TEST_BASE: BASE,
-  // The suite forges session cookies, so it must share the server's secret.
-  SESSION_SECRET: process.env.SESSION_SECRET || randomBytes(24).toString("hex"),
-  // Opens the read-only /api/demo/query route for this server only.
-  DEMO_TEST_TOKEN: randomBytes(24).toString("hex"),
-};
-
+const env = { ...process.env, DATABASE_URL: "file:./test.db", TEST_BASE: BASE };
 const server = spawn("npx", ["next", "start", "-p", PORT], {
   env, stdio: ["ignore", "pipe", "pipe"], shell: process.platform === "win32",
 });
@@ -54,12 +61,9 @@ async function waitForServer() {
 }
 
 function shutdown(code) {
-  // On Windows the server runs under a shell, and killing the shell leaves
-  // Next running and holding the port. Take down the whole process tree.
-  if (process.platform === "win32") {
-    spawnSync("taskkill", ["/pid", String(server.pid), "/T", "/F"], { stdio: "ignore" });
-  } else {
-    server.kill();
+  server.kill();
+  for (const suffix of ["", "-wal", "-shm", "-journal"]) {
+    try { rmSync("prisma/test.db" + suffix, { force: true }); } catch { /* ignore */ }
   }
   process.exit(code);
 }
@@ -76,7 +80,7 @@ suite.on("exit", (code) => {
   const bad = log
     .split(/\r?\n/)
     .filter((l) =>
-      /window is not defined|unhandledRejection|invalid-use-server|Cannot read propert|demo store/.test(l),
+      /window is not defined|unhandledRejection|invalid-use-server|Cannot read propert/.test(l),
     );
   if (bad.length) {
     console.log(`\nUnexpected server-side errors (${bad.length}):`);

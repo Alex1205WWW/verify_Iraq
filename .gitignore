@@ -3,14 +3,15 @@ node_modules
 out
 .env
 .env.local
-prisma/dev.db
-prisma/dev.db-journal
 .data
 next-env.d.ts
 *.tsbuildinfo
-prisma/test.db
 
-# Cloudflare local secrets and build output
+# Local SQLite files kept with the archived database design
+archive/**/*.db
+archive/**/*.db-journal
+
+# Cloudflare local secrets and build output (archived deployment path)
 .dev.vars
 .wrangler
 .open-next

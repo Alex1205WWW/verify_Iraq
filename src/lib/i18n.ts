@@ -120,6 +120,17 @@ const en = {
     backToSignIn: "Back to sign in",
   },
 
+  demo: {
+    label: "Demo",
+    banner:
+      "Demo mode: virtual data, no database. Changes stay until the demo is reset.",
+    signInAs: "Sign in as",
+    reset: "Reset demo data",
+    resetting: "Resetting…",
+    resetConfirm:
+      "Put every task, message and account back to where the demo starts?",
+  },
+
   nav: {
     dispatch: "Dispatch",
     network: "Network",
@@ -480,6 +491,16 @@ const ar: Dict = {
     pendingBody:
       "تُراجع كل شركة وكل باحث يدوياً قبل فتح الحساب. ستتمكن من تسجيل الدخول فور الموافقة.",
     backToSignIn: "العودة لتسجيل الدخول",
+  },
+
+  demo: {
+    label: "عرض تجريبي",
+    banner:
+      "وضع العرض التجريبي: بيانات افتراضية بدون قاعدة بيانات. تبقى التغييرات حتى إعادة ضبط العرض.",
+    signInAs: "الدخول بصفة",
+    reset: "إعادة ضبط البيانات التجريبية",
+    resetting: "جارٍ إعادة الضبط…",
+    resetConfirm: "هل تريد إعادة كل المهام والرسائل والحسابات إلى بداية العرض التجريبي؟",
   },
 
   nav: {

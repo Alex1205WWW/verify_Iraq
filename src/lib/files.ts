@@ -1,56 +1,27 @@
 import "server-only";
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
-import path from "node:path";
-import { getCloudflareContext } from "@opennextjs/cloudflare";
 
 /**
- * File storage. Everything is served back through /api/files/[key], which
- * checks the caller's role before returning bytes - uploads are never exposed
- * as static files, whichever backend holds them.
+ * File storage for the demo: uploads are held in this server process's
+ * memory, alongside the virtual data, and disappear with it on a restart or a
+ * demo reset. Nothing is written to disk or to a bucket.
  *
- * Two backends behind the same functions:
- *   - Cloudflare Workers: the R2 bucket bound as UPLOADS. Workers have no
- *     persistent disk, so this is the only place a site photo survives.
- *   - Everywhere else: local disk under UPLOADS_DIR, or .data/uploads.
- *
- * No caller knows or cares which one is in use.
+ * Everything is still served back through /api/files/[key], which checks the
+ * caller's relationship to the task before returning bytes — uploads are never
+ * exposed as static files.
  */
 
-const ROOT =
-  process.env.UPLOADS_DIR ?? path.join(process.cwd(), ".data", "uploads");
+type StoredFile = { data: Buffer; mime: string };
 
-/** The slice of the R2 binding this file uses. Avoids a types dependency. */
-interface R2Bucket {
-  put(
-    key: string,
-    value: ArrayBuffer | ArrayBufferView,
-    options?: { httpMetadata?: { contentType?: string } },
-  ): Promise<unknown>;
-  get(key: string): Promise<{ arrayBuffer(): Promise<ArrayBuffer> } | null>;
-}
+// A demo can be left open for days. Past this, the oldest uploads are dropped
+// so the server cannot run out of memory.
+const MAX_TOTAL_BYTES = 256 * 1024 * 1024;
 
-/**
- * The slice of a Workers KV binding this file uses.
- *
- * KV is the fallback for Cloudflare temporary preview accounts, which do not
- * offer R2. A KV value can be up to 25 MiB, comfortably above the 10 MB cap
- * enforced below. KV is eventually consistent, so R2 remains the right choice
- * for a permanent deployment.
- */
-interface KVNamespace {
-  put(key: string, value: ArrayBuffer | ArrayBufferView): Promise<void>;
-  get(key: string, type: "arrayBuffer"): Promise<ArrayBuffer | null>;
-}
+const globalForFiles = globalThis as unknown as { demoFiles?: Map<string, StoredFile> };
 
-function cloudflareEnv(): { UPLOADS?: R2Bucket; UPLOADS_KV?: KVNamespace } {
-  try {
-    const { env } = getCloudflareContext();
-    return env as unknown as { UPLOADS?: R2Bucket; UPLOADS_KV?: KVNamespace };
-  } catch {
-    // Not inside Cloudflare. Use local disk.
-    return {};
-  }
+function files(): Map<string, StoredFile> {
+  globalForFiles.demoFiles ??= new Map();
+  return globalForFiles.demoFiles;
 }
 
 const EXT_BY_MIME: Record<string, string> = {
@@ -67,19 +38,17 @@ export function extensionFor(mime: string): string {
 
 export async function saveBuffer(data: Buffer, mime: string): Promise<string> {
   const key = `${randomUUID()}.${extensionFor(mime)}`;
+  const store = files();
+  store.set(key, { data, mime });
 
-  const { UPLOADS, UPLOADS_KV } = cloudflareEnv();
-  if (UPLOADS) {
-    await UPLOADS.put(key, data, { httpMetadata: { contentType: mime } });
-    return key;
+  let total = 0;
+  for (const f of store.values()) total += f.data.byteLength;
+  // Maps iterate in insertion order, so this walks from the oldest upload.
+  for (const [k, f] of store) {
+    if (total <= MAX_TOTAL_BYTES || k === key) break;
+    store.delete(k);
+    total -= f.data.byteLength;
   }
-  if (UPLOADS_KV) {
-    await UPLOADS_KV.put(key, data);
-    return key;
-  }
-
-  await mkdir(ROOT, { recursive: true });
-  await writeFile(path.join(ROOT, key), data);
   return key;
 }
 
@@ -108,29 +77,22 @@ export async function saveUpload(
 }
 
 export async function readStored(key: string): Promise<Buffer> {
-  // Keys are generated UUIDs; refuse anything that could climb the tree or
-  // reach an arbitrary object. Checked before either backend is touched.
+  // Keys are generated UUIDs; refuse anything else before looking.
   if (!/^[a-f0-9-]{36}\.[a-z0-9]{1,5}$/i.test(key)) {
     throw new Error("Bad file key.");
   }
-
-  const { UPLOADS, UPLOADS_KV } = cloudflareEnv();
-  if (UPLOADS) {
-    const object = await UPLOADS.get(key);
-    if (!object) throw new Error("File not found.");
-    return Buffer.from(await object.arrayBuffer());
-  }
-  if (UPLOADS_KV) {
-    const bytes = await UPLOADS_KV.get(key, "arrayBuffer");
-    if (!bytes) throw new Error("File not found.");
-    return Buffer.from(bytes);
-  }
-
-  return readFile(path.join(ROOT, key));
+  const found = files().get(key);
+  if (!found) throw new Error("File not found.");
+  return found.data;
 }
 
 export function mimeForKey(key: string): string {
   const ext = key.split(".").pop()?.toLowerCase();
   const found = Object.entries(EXT_BY_MIME).find(([, e]) => e === ext);
   return found ? found[0] : "application/octet-stream";
+}
+
+/** Drops every upload. Used by the demo reset. */
+export function clearStoredFiles(): void {
+  files().clear();
 }

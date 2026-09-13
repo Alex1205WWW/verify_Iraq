@@ -1,7 +1,6 @@
 {
   "$schema": "https://railway.com/railway.schema.json",
   "deploy": {
-    "startCommand": "npm run start",
-    "restartPolicyType": "ON_FAILURE"
+    "preDeployCommand": ["npm run db:deploy"]
   }
 }
